@@ -29,6 +29,10 @@
           margin-bottom: 10px;
         }
       }
+      .table-responsive {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
     body { font-family: Arial, sans-serif; padding: 20px; background: #f5f7fa; }
     input, button, select { padding: 8px; margin: 5px 0; }
     .section { border: 1px solid #ccc; border-radius: 5px; background: #fff; margin-top: 10px; padding: 10px; }
@@ -36,6 +40,20 @@
     .nav-btn { margin: 5px; padding: 10px 15px; background: #007BFF; color: white; border: none; border-radius: 4px; cursor: pointer; }
     .nav-btn:hover { background-color: #0056b3; }
     #logoutBtn { float: right; background: red; }
+    
+    .checklist-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;         /* spazio ridotto tra checkbox e testo */
+      margin: 2px 0;    /* meno spazio verticale */
+      justify-content: flex-start; /* allinea tutto a sinistra */
+    }
+      .checklist-item input[type="checkbox"] {
+        margin-left: 0;
+        width: 16px;
+        height: 16px;
+      }
+    
   </style>
 </head>
 <body>
@@ -52,24 +70,6 @@
   <div id="mainApp" class="hidden">
     <button id="logoutBtn" onclick="logout()">Logout</button>
     <h1>Gestione Gite - Cesena Blu</h1>
-    <button id="apriImpostazioni">⚙️ Impostazioni</button>
-    <div id="sezioneImpostazioni" style="display: none; border: 1px solid #ccc; padding: 10px; margin-top: 10px;">
-      <h3>Loghi intestazione PDF (max 2)</h3>
-
-      <div>
-        <label>Logo 1:</label>
-        <input type="file" id="logo1" accept="image/*">
-        <img id="previewLogo1" style="max-height: 50px; vertical-align: middle; margin-left: 10px;">
-      </div>
-
-      <div>
-        <label>Logo 2:</label>
-        <input type="file" id="logo2" accept="image/*">
-        <img id="previewLogo2" style="max-height: 50px; vertical-align: middle; margin-left: 10px;">
-      </div>
-
-
-      <button id="salvaLoghi">Salva Loghi</button>
     </div>
     <div id="bloccoAggiungiGita">
       <input type="text" id="nomeGita" placeholder="Nome della gita">
@@ -108,7 +108,7 @@
       <div id="sezioneTuffi" class="section hidden">
         <h3>Calendario Tuffi</h3>
         <div id="tuffiContainer"></div>
-        <button onclick="salvaTuffi()">Salva Orari Tuffi</button>
+        <button id="btnSalvaTuffi" onclick="salvaTuffi()" style="background-color: green; color: white;">💾 Salva Orari Tuffi</button>
       </div>
       <div id="sezioneImporta" class="section hidden">
         <h3>Importazione Iscritti (Excel)</h3>
@@ -119,14 +119,14 @@
      style="max-height:250px;overflow:auto;border:1px solid #ccc;padding:6px"></div>
 
         <button id="btnConfermaImport" class="nav-btn hidden" onclick="confermaImportIscritti()">Conferma Importazione</button>
+        <button id="btnEliminaIscritti" style="margin-top: 10px; background-color: red; color: white;">🗑️ Elimina Iscritti</button>
+
       </div>
       
       <div id="sezioneOrganizza" class="section hidden">
         <h3>Organizzazione Immersione</h3>
         <label for="menuTuffi">Scegli giorno e orario:</label>
         <select id="menuTuffi"></select>
-        
-          <option value="">-- Seleziona --</option>
         </select>
         <div id="organizzazioneImmersioneContainer"></div>
         
@@ -161,52 +161,46 @@
         el.textContent = testo;
         setTimeout(() => el.textContent = '', 3000);
       }
-      document.getElementById("apriImpostazioni").onclick = () => {
-        const sez = document.getElementById("sezioneImpostazioni");
-        sez.style.display = sez.style.display === "none" ? "block" : "none";
-        if (sez.style.display === "block") aggiornaPreviewLoghi();
-      };
 
-      
-      function aggiornaPreviewLoghi() {
-        for (let i = 1; i <= 2; i++) {
-          const base64 = localStorage.getItem(`logoPDF_${i}`);
-          const img = document.getElementById(`previewLogo${i}`);
+      document.getElementById('btnEliminaIscritti').addEventListener('click', async () => {
+        if (!currentGitaId) {
+          alert("Seleziona una gita prima di procedere.");
+          return;
+        }
 
-          if (!img) continue;
+        const doc = await db.collection("gite").doc(currentGitaId).get();
+        const gita = doc.data();
 
-          if (base64 && base64.startsWith("data:image")) {
-            img.setAttribute("src", base64);
-            img.style.display = "inline-block";
-            img.style.visibility = "visible";
-          } else {
-            img.removeAttribute("src");
-            img.style.display = "none";
+        if (!gita || !gita.partecipanti || gita.partecipanti.length === 0) {
+          alert("Non ci sono iscritti da eliminare.");
+          return;
+        }
+
+        // Controllo presenze
+        let presenzePresenti = false;
+        for (const nome in (gita.presenze || {})) {
+          const presenzePerPersona = gita.presenze[nome];
+          if (Object.values(presenzePerPersona).some(v => v === true || v === false)) {
+            presenzePresenti = true;
+            break;
           }
         }
-      }
 
-
-      document.getElementById("salvaLoghi").onclick = async () => {
-        for (let i = 1; i <= 2; i++) {
-          const fileInput = document.getElementById(`logo${i}`);
-          const file = fileInput.files[0];
-          if (file) {
-            await new Promise(resolve => {
-              const reader = new FileReader();
-              reader.onload = () => {
-                localStorage.setItem(`logoPDF_${i}`, reader.result);
-                resolve();
-              };
-              reader.readAsDataURL(file);
-            });
-          }
+        if (presenzePresenti) {
+          alert("Non puoi eliminare gli iscritti: sono presenti delle presenze registrate.");
+          return;
         }
-        aggiornaPreviewLoghi();
-        alert("Loghi salvati correttamente.");
-      };
 
+        const conferma = confirm("Sei sicuro di voler eliminare tutti gli iscritti? Questa operazione non è reversibile.");
+        if (!conferma) return;
 
+        await db.collection("gite").doc(currentGitaId).update({
+          partecipanti: firebase.firestore.FieldValue.delete()
+        });
+
+        alert("Iscritti eliminati con successo.");
+        location.reload();
+      });
       
       function login() {
         const email = document.getElementById('email').value;
@@ -268,7 +262,6 @@
         document.querySelector('#mainApp > div').style.display = 'none';
         caricaCalendarioTuffi(docId);
         document.getElementById('sezioniGita').classList.remove('hidden');
-        document.getElementById('titoloGita').textContent = nomeGita;
         document.getElementById('nomeGita').value = '';
         document.getElementById('dateGita').value = '';
         document.getElementById('listaGite').style.display = 'none';
@@ -294,7 +287,6 @@
             // Forza la visualizzazione dei blocchi logo1 e logo2
             document.querySelector('#logo1').parentElement.style.display = 'block';
             document.querySelector('#logo2').parentElement.style.display = 'block';
-            aggiornaPreviewLoghi();
             document.getElementById('btnArchivio').style.display = 'inline-block'; // ⬅️ RIMETTE il pulsante Archivio se serviva
             document.getElementById('apriImpostazioni').style.display = 'inline-block';
             backBtn.remove();
@@ -574,7 +566,10 @@
                 box.appendChild(btnSalvaPunto);
 
                 if (mezzo.persone && mezzo.persone.length > 0) {
-                  const tabella = document.createElement('table');
+                    const wrapperTabella = document.createElement('div');
+                    wrapperTabella.className = 'table-responsive';
+
+                    const tabella = document.createElement('table');
                   tabella.style.marginTop = '10px';
                   tabella.style.borderCollapse = 'collapse';
                   tabella.innerHTML = `
@@ -611,7 +606,11 @@
                     const tdCategoria = document.createElement('td');
 
                     tdNome.textContent = nome;
-                    tdNome.style.color = statoPresenza ? 'green' : 'red';
+                    if (g.presenze?.[nome]?.[`${data}|${orario}`] !== undefined) {
+                      tdNome.style.color = statoPresenza ? 'green' : 'red';
+                    } else {
+                      tdNome.style.color = 'black'; // colore neutro di default
+                    }
                     tdCorso.textContent = corso;
                     tdCategoria.textContent = categoria;
 
@@ -623,7 +622,8 @@
                     tbody.appendChild(tr);
                   });
 
-                  box.appendChild(tabella);
+                  wrapperTabella.appendChild(tabella);
+                  box.appendChild(wrapperTabella);
 
                   // Pulsante per salvare le presenze in blocco
                   const salvaPresenzeBtn = document.createElement('button');
@@ -743,37 +743,41 @@
       function generaFoglioBarcaPDF({ giorno, orario, mezzo, partecipanti, partecipantiTotali, nomeGita, puntoImmersione }) {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
-        const loghi = [1, 2].map(i => localStorage.getItem(`logoPDF_${i}`)).filter(Boolean);
+        const loghiSrc = ["logo1.png", "logo2.png"];
         const logoY = 5;
-        const logoSize = 25;
         const targetHeight = 25;
         const spacing = 10;
-        const imagesToInsert = [];
-        const pageWidth = doc.internal.pageSize.getWidth();
-        const spazioTotale = logoSize * loghi.length + 10 * (loghi.length - 1);
-        let startX = (pageWidth - spazioTotale) / 2;
 
+        const imagesToInsert = [];
         let loaded = 0;
-        loghi.forEach((base64, index) => {
+
+        loghiSrc.forEach((src, index) => {
           const img = new Image();
+          img.crossOrigin = "anonymous"; // se serve per evitare errori CORS da localhost
           img.onload = () => {
-            const aspect = img.width / img.height;
-            const width = targetHeight * aspect;
-            imagesToInsert[index] = { base64, width };
+            const canvas = document.createElement("canvas");
+            const ratio = img.width / img.height;
+            canvas.width = targetHeight * ratio;
+            canvas.height = targetHeight;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL("image/png");
+            imagesToInsert[index] = { base64: dataUrl, width: canvas.width };
             loaded++;
-            if (loaded === loghi.length) {
-              const totalWidth = imagesToInsert.reduce((acc, el) => acc + el.width, 0) + spacing * (imagesToInsert.length - 1);
+            if (loaded === loghiSrc.length) {
               const pageWidth = doc.internal.pageSize.getWidth();
+              const totalWidth = imagesToInsert.reduce((sum, el) => sum + el.width, 0) + spacing * (imagesToInsert.length - 1);
               let startX = (pageWidth - totalWidth) / 2;
               imagesToInsert.forEach(({ base64, width }) => {
-                doc.addImage(base64, 'PNG', startX, logoY, width, targetHeight);
+                doc.addImage(base64, "PNG", startX, logoY, width, targetHeight);
                 startX += width + spacing;
               });
-              continuaGenerazionePDF();  // Avvia il resto del PDF dopo i loghi
+              continuaGenerazionePDF();
             }
           };
-          img.src = base64;
+          img.src = src;
         });
+
         
         // Blocca il resto della generazione finché non carica i loghi
         function continuaGenerazionePDF() {
@@ -1079,7 +1083,8 @@
                 });
 
                 filtrati.forEach((p, i) => {
-                  const div = document.createElement('div');
+                    const div = document.createElement('div');
+                    div.className = 'checklist-item';
                   const chk = document.createElement('input');
                   chk.type = 'checkbox';
                   chk.id = `p_${i}`;
@@ -1299,70 +1304,126 @@ function addOrario(wrapper,val=''){
   const list=wrapper.querySelector('.lista-orari');
   const span=document.createElement('span'); span.style.marginRight='5px';
   const inp=document.createElement('input'); inp.type='time'; inp.value=val; span.appendChild(inp);
-  const del=document.createElement('button'); del.textContent='X'; del.style.marginLeft='2px';
-  del.onclick=()=>{ if(confirm('Rimuovere questo orario?')) span.remove(); };
+  // Controlla se l'orario è già presente per lo stesso giorno
+  const orariEsistenti = wrapper.querySelectorAll("input[type='time']");
+  for (const o of orariEsistenti) {
+    if (o.value === val && val !== '') {
+      alert("Questo orario è già stato aggiunto.");
+      return;
+    }
+  }
+  const del = document.createElement('button');
+  del.textContent = 'X';
+  del.style.marginLeft = '2px';
+  del.onclick = async () => {
+    const giorno = wrapper.dataset.data;
+    const orario = inp.value;
+
+    const doc = await db.collection("gite").doc(currentGitaId).get();
+    const dati = doc.data();
+    const organizzazione = dati.organizzazione || {};
+    const presenze = dati.presenze || {};
+
+    const mezzi = organizzazione[giorno]?.[orario] || [];
+    const haOrganizzazione = Array.isArray(mezzi) && mezzi.length > 0;
+
+    let haPresenze = false;
+    for (const nome in presenze) {
+      if (presenze[nome]?.[`${giorno}|${orario}`] !== undefined) {
+        haPresenze = true;
+        break;
+      }
+    }
+
+    if (haOrganizzazione || haPresenze) {
+      alert("Non puoi eliminare questo orario: è già presente in una organizzazione o tra le presenze.");
+      return;
+    }
+
+    if (confirm('Rimuovere questo orario?')) span.remove();
+  };
+
+
   span.appendChild(del);
   list.appendChild(span);
 }
 
 function salvaTuffi() {
   if (!currentGitaId) return;
+  const giorni = Array.from(document.querySelectorAll("[data-data]")).map(w => w.dataset.data);
+    const dati = {};
 
-  const dati = {};
-  document.querySelectorAll('#tuffiContainer .giorno-tuffi').forEach(div => {
-    const iso = div.dataset.data;
-    const orari = Array.from(div.querySelectorAll('input[type="time"]'))
-      .map(i => i.value.trim())
-      .filter(v => v);
-    dati[iso] = orari;
-  });
+    giorni.forEach(giorno => {
+      const wrapper = document.querySelector(`[data-data='${giorno}']`);
+      const orari = Array.from(wrapper.querySelectorAll("input[type='time']"))
+        .map(i => i.value)
+        .filter(Boolean);
 
-  db.collection('gite').doc(currentGitaId).get().then(doc => {
-    const gita = doc.data();
-    const organizzazione = gita.organizzazione || {};
-    const vecchiTuffi = gita.tuffi || {};
-    const nuovaOrganizzazione = {};
+      // Rimuove duplicati
+      const orariUnici = [...new Set(orari)];
 
-    for (const giorno in dati) {
-      nuovaOrganizzazione[giorno] = {};
-      const nuoviOrari = dati[giorno];
-      const vecchiOrari = vecchiTuffi[giorno] || [];
+      // Ordina cronologicamente stabile
+      orariUnici.sort((a, b) => {
+        const [ah, am] = a.split(':').map(Number);
+        const [bh, bm] = b.split(':').map(Number);
+        return (ah * 60 + am) - (bh * 60 + bm);
+      });
 
-      nuoviOrari.forEach(nuovoOrario => {
-        // Se esiste già, mantieni l'associazione
-        if (organizzazione[giorno]?.[nuovoOrario]) {
-          nuovaOrganizzazione[giorno][nuovoOrario] = JSON.parse(JSON.stringify(organizzazione[giorno][nuovoOrario]));
-        } else {
-          // Trova orario più vicino da cui copiare
-          let trovato = null;
-          let minDiff = Infinity;
-          vecchiOrari.forEach(vecchio => {
-            const diff = Math.abs(parseInt(vecchio.replace(":", "")) - parseInt(nuovoOrario.replace(":", "")));
-            if (diff < minDiff) {
-              minDiff = diff;
-              trovato = vecchio;
+      dati[giorno] = orariUnici;
+    });
+
+    // Ora controlla se si stanno rimuovendo orari che hanno organizzazione o presenze
+    db.collection('gite').doc(currentGitaId).get().then(async doc => {
+      const gita = doc.data();
+      const organizzazione = gita.organizzazione || {};
+      const vecchiTuffi = gita.tuffi || {};
+      const presenze = gita.presenze || {};
+      const nuovaOrganizzazione = {};
+
+      for (const giorno in dati) {
+        nuovaOrganizzazione[giorno] = {};
+        const nuoviOrari = dati[giorno];
+        const vecchiOrari = vecchiTuffi[giorno] || [];
+
+        for (const vecchioOrario of vecchiOrari) {
+          if (!nuoviOrari.includes(vecchioOrario)) {
+            const mezzi = organizzazione[giorno]?.[vecchioOrario] || [];
+            const haOrganizzazione = Array.isArray(mezzi) && mezzi.length > 0;
+
+            if (haOrganizzazione) {
+              alert(`Non puoi rimuovere l'orario ${vecchioOrario} del giorno ${giorno}: è già presente in una organizzazione.`);
+              return;
             }
-          });
 
-          if (trovato && organizzazione[giorno]?.[trovato]) {
-            nuovaOrganizzazione[giorno][nuovoOrario] = JSON.parse(JSON.stringify(organizzazione[giorno][trovato]));
+            for (const nome in presenze) {
+              if (presenze[nome]?.[`${giorno}|${vecchioOrario}`] !== undefined) {
+                alert(`Non puoi rimuovere l'orario ${vecchioOrario} del giorno ${giorno}: è presente tra le presenze.`);
+                return;
+              }
+            }
+          }
+        }
+
+        // Trasferisce le associazioni già presenti
+        nuoviOrari.forEach(nuovoOrario => {
+          if (organizzazione[giorno]?.[nuovoOrario]) {
+            nuovaOrganizzazione[giorno][nuovoOrario] = JSON.parse(JSON.stringify(organizzazione[giorno][nuovoOrario]));
           } else {
             nuovaOrganizzazione[giorno][nuovoOrario] = [];
           }
-        }
-      });
-    }
+        });
+      }
 
-    db.collection('gite').doc(currentGitaId).update({
-      tuffi: dati,
-      organizzazione: nuovaOrganizzazione
-    }).then(() => {
-      showMsg('Tuffi aggiornati con trasferimento delle associazioni');
-    }).catch(() => {
-      showMsg('Errore nel salvataggio dei tuffi');
+      // Aggiorna Firebase
+      await db.collection('gite').doc(currentGitaId).update({
+        tuffi: dati,
+        organizzazione: nuovaOrganizzazione
+      });
+
+      alert("Orari tuffi salvati con successo.");
+      
     });
-  });
-}
+  }
 
 function esportaElencoPresenze() {
   const docRef = db.collection("gite").doc(currentGitaId);
