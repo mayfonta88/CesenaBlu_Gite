@@ -70,7 +70,23 @@
   <div id="mainApp" class="hidden">
     <button id="logoutBtn" onclick="logout()">Logout</button>
     <h1>Gestione Gite - Cesena Blu</h1>
-    </div>
+    <button id="apriImpostazioni">⚙️ Impostazioni</button>
+    <div id="sezioneImpostazioni" style="display: none; border: 1px solid #ccc; padding: 10px; margin-top: 10px;">
+        <h3>Gestione Utenti</h3>
+        <div style="overflow-x: auto;">
+          <table id="tabellaUtenti" border="1" style="width: 100%; min-width: 600px; margin-bottom: 20px;">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Approvato</th>
+                <th>Tipo Accesso</th>
+                <th>Azioni</th>
+              </tr>
+            </thead>
+            <tbody id="listaUtenti"></tbody>
+          </table>
+        </div>
+        </div>
     <div id="bloccoAggiungiGita">
       <input type="text" id="nomeGita" placeholder="Nome della gita">
       <input type="text" id="dateGita" placeholder="Scegli giorni" readonly>
@@ -154,6 +170,8 @@
 
       const auth = firebase.auth();
       const db = firebase.firestore();
+      let currentUser = null;
+      const adminEmails = ["mattiafontana@gmail.com", "direzionetecnica@cesenablu.it"];
       let currentGitaId = null;
 
       function showMsg(testo) {
@@ -161,6 +179,11 @@
         el.textContent = testo;
         setTimeout(() => el.textContent = '', 3000);
       }
+      document.getElementById("apriImpostazioni").onclick = () => {
+        const sez = document.getElementById("sezioneImpostazioni");
+        sez.style.display = sez.style.display === "none" ? "block" : "none";
+        caricaListaUtenti();
+      };
 
       document.getElementById('btnEliminaIscritti').addEventListener('click', async () => {
         if (!currentGitaId) {
@@ -201,6 +224,8 @@
         alert("Iscritti eliminati con successo.");
         location.reload();
       });
+
+
       
       function login() {
         const email = document.getElementById('email').value;
@@ -213,8 +238,20 @@
       function register() {
         const email = document.getElementById('email').value;
         const password = document.getElementById('password').value;
+
         auth.createUserWithEmailAndPassword(email, password)
-          .then(() => location.reload())
+          .then(userCredential => {
+            const user = userCredential.user;
+            // crea documento con approvato = false
+            return db.collection("utenti").doc(email).set({
+              approvato: false,
+              tipo: "Limitato"
+            });
+          })
+          .then(() => {
+            document.getElementById("authMessage").innerHTML = "Registrazione completata. Attendi l'approvazione.";
+            auth.signOut();
+          })
           .catch(err => document.getElementById('authMessage').textContent = err.message);
       }
 
@@ -233,6 +270,59 @@
         auth.signOut().then(() => location.reload());
       }
 
+      function caricaListaUtenti() {
+        const lista = document.getElementById("listaUtenti");
+        lista.innerHTML = "";
+
+        db.collection("utenti").get().then(snapshot => {
+          snapshot.forEach(doc => {
+            const dati = doc.data();
+            const email = doc.id;
+            const approvato = dati.approvato === true;
+            const tipo = dati.tipo || "Limitato";
+
+            const tr = document.createElement("tr");
+
+            tr.innerHTML = `
+              <td>${email}</td>
+              <td>${approvato ? "✅" : "❌"}</td>
+              <td>
+                <select onchange="aggiornaTipoAccesso('${email}', this.value)">
+                  <option value="Completo" ${tipo === "Completo" ? "selected" : ""}>Completo</option>
+                  <option value="Limitato" ${tipo === "Limitato" ? "selected" : ""}>Limitato</option>
+                </select>
+              </td>
+              <td>
+                <button onclick="approvaUtente('${email}', true)">✔️ Approva</button>
+                <button onclick="approvaUtente('${email}', false)">❌ Rimuovi</button>
+                <button onclick="eliminaUtente('${email}')">🗑️ Elimina</button>
+              </td>
+            `;
+
+            lista.appendChild(tr);
+          });
+        });
+      }
+
+      function approvaUtente(email, stato) {
+        db.collection("utenti").doc(email).update({
+          approvato: stato
+        }).then(() => caricaListaUtenti());
+      }
+
+      function aggiornaTipoAccesso(email, tipo) {
+        db.collection("utenti").doc(email).update({
+          tipo: tipo
+        }).then(() => caricaListaUtenti());
+      }
+
+      function eliminaUtente(email) {
+        if (confirm("Sei sicuro di voler eliminare questo utente?")) {
+          db.collection("utenti").doc(email).delete().then(() => caricaListaUtenti());
+        }
+      }
+
+      
       function toggleGitaSection(sectionId) {
         ['Imbarcazioni','Tuffi','Importa','Organizza'].forEach(id=>{
           document.getElementById('sezione'+id).classList.add('hidden');
@@ -258,7 +348,7 @@
         document.getElementById('listaGiteArchivio').style.display = 'none';
         document.getElementById('apriImpostazioni').style.display = 'none';
         document.getElementById('bloccoAggiungiGita').style.display = 'none';
-        document.querySelector('#mainApp > div > div:nth-child(3)').style.display = 'none';
+        
         document.querySelector('#mainApp > div').style.display = 'none';
         caricaCalendarioTuffi(docId);
         document.getElementById('sezioniGita').classList.remove('hidden');
@@ -284,9 +374,6 @@
             document.getElementById('bloccoAggiungiGita').style.display = 'block';
             document.querySelector('#mainApp > div').style.display = 'block';
             document.getElementById('sezioneImpostazioni').style.display = 'none'; // ⬅️ CHIUDE la sezione impostazioni
-            // Forza la visualizzazione dei blocchi logo1 e logo2
-            document.querySelector('#logo1').parentElement.style.display = 'block';
-            document.querySelector('#logo2').parentElement.style.display = 'block';
             document.getElementById('btnArchivio').style.display = 'inline-block'; // ⬅️ RIMETTE il pulsante Archivio se serviva
             document.getElementById('apriImpostazioni').style.display = 'inline-block';
             backBtn.remove();
@@ -743,156 +830,163 @@
       function generaFoglioBarcaPDF({ giorno, orario, mezzo, partecipanti, partecipantiTotali, nomeGita, puntoImmersione }) {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
-        const loghiSrc = ["logo1.png", "logo2.png"];
+
+        const logoUrls = [
+          "https://res.cloudinary.com/mymagazzino/image/upload/v1748814243/Loghi%20App/bmyvpktpv2jni4f4ocvp.png",
+          "https://res.cloudinary.com/mymagazzino/image/upload/v1748814244/Loghi%20App/iv6ab4yoszvfavftqtsv.png"
+        ];
+
         const logoY = 5;
         const targetHeight = 25;
         const spacing = 10;
-
         const imagesToInsert = [];
         let loaded = 0;
 
-        loghiSrc.forEach((src, index) => {
-          const img = new Image();
-          img.crossOrigin = "anonymous"; // se serve per evitare errori CORS da localhost
-          img.onload = () => {
-            const canvas = document.createElement("canvas");
-            const ratio = img.width / img.height;
-            canvas.width = targetHeight * ratio;
-            canvas.height = targetHeight;
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            const dataUrl = canvas.toDataURL("image/png");
-            imagesToInsert[index] = { base64: dataUrl, width: canvas.width };
-            loaded++;
-            if (loaded === loghiSrc.length) {
-              const pageWidth = doc.internal.pageSize.getWidth();
-              const totalWidth = imagesToInsert.reduce((sum, el) => sum + el.width, 0) + spacing * (imagesToInsert.length - 1);
-              let startX = (pageWidth - totalWidth) / 2;
-              imagesToInsert.forEach(({ base64, width }) => {
-                doc.addImage(base64, "PNG", startX, logoY, width, targetHeight);
-                startX += width + spacing;
-              });
-              continuaGenerazionePDF();
-            }
-          };
-          img.src = src;
+        logoUrls.forEach((url, index) => {
+          fetch(url)
+            .then(res => res.blob())
+            .then(blob => new Promise(resolve => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result);
+              reader.readAsDataURL(blob);
+            }))
+            .then(base64 => {
+              const img = new Image();
+              img.onload = () => {
+                const aspect = img.width / img.height;
+                const width = targetHeight * aspect;
+                imagesToInsert[index] = { base64, width };
+                loaded++;
+                if (loaded === logoUrls.length) {
+                  const totalWidth = imagesToInsert.reduce((sum, el) => sum + el.width, 0) + spacing * (imagesToInsert.length - 1);
+                  const startX = (doc.internal.pageSize.getWidth() - totalWidth) / 2;
+                  let x = startX;
+                  imagesToInsert.forEach(({ base64, width }) => {
+                    doc.addImage(base64, 'PNG', x, logoY, width, targetHeight);
+                    x += width + spacing;
+                  });
+                  continuaGenerazionePDF();
+                }
+              };
+              img.src = base64;
+            });
         });
 
-        
-        // Blocca il resto della generazione finché non carica i loghi
+        function formatTitolo(s) {
+          return (s || '').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+        }
+
         function continuaGenerazionePDF() {
-          let y = logoY + targetHeight + 5;
+          let y = logoY + targetHeight + 10;
+
+          const corsiSet = new Set();
+          const staff = [], utenti = [];
+
+          partecipanti.forEach(nome => {
+            const p = partecipantiTotali.find(x => x.nome === nome);
+            if (!p) return;
+            const cat = (p.categoria || '').toLowerCase();
+            const isStaff = ['istruttore', 'aiutoistruttore', 'divemaster'].includes(cat);
+            const obj = {
+              nome: p.nome,
+              corso: p.corso || 'Nessun corso',
+              categoria: p.categoria || 'N/A'
+            };
+            corsiSet.add(p.corso || 'Nessun corso');
+            isStaff ? staff.push(obj) : utenti.push(obj);
+          });
+
+          const corsi = Array.from(corsiSet).filter(Boolean).join(" e ") || 'Nessun corso';
+          const titolo = `${mezzo.nome} (${mezzo.tipo}) — ${corsi}`;
+
+          utenti.sort((a, b) => {
+            const corsoA = a.corso.toLowerCase();
+            const corsoB = b.corso.toLowerCase();
+            if (corsoA < corsoB) return -1;
+            if (corsoA > corsoB) return 1;
+            return a.nome.localeCompare(b.nome);
+          });
+
+          function categoriaPriorita(cat) {
+            switch (cat.toLowerCase()) {
+              case 'istruttore': return 0;
+              case 'aiutoistruttore': return 1;
+              case 'divemaster': return 2;
+              default: return 3;
+            }
+          }
+
+          staff.sort((a, b) => {
+            const corsoA = a.corso.toLowerCase();
+            const corsoB = b.corso.toLowerCase();
+            if (corsoA < corsoB) return -1;
+            if (corsoA > corsoB) return 1;
+            const pA = categoriaPriorita(a.categoria);
+            const pB = categoriaPriorita(b.categoria);
+            if (pA !== pB) return pA - pB;
+            return a.nome.localeCompare(b.nome);
+          });
+
+          const dataLabel = new Date(giorno).toLocaleDateString('it-IT');
+          const nomeFile = `${mezzo.nome.replace(/\s+/g, '_')}_${dataLabel.replace(/\//g, '-')}_${orario.replace(':', '')}.pdf`;
+
+          doc.setFontSize(14);
+          doc.text(titolo, 10, y);
+          y += 8;
+
+          doc.setFontSize(11);
+          doc.text(`GITA: ${nomeGita}`, 10, y); y += 6;
+          if (puntoImmersione) {
+            doc.text(`PUNTO IMMERSIONE: ${puntoImmersione}`, 10, y); y += 6;
+          }
+          doc.text(`DATA: ${dataLabel}`, 10, y); y += 6;
+          doc.text(`ORARIO: ${orario}`, 10, y); y += 6;
+          doc.text(`POSTI BARCA: ${mezzo.capienza || '∞'}`, 10, y);
+          doc.text(`SUBACQUEI A BORDO: ${partecipanti.length}`, 100, y);
+          y += 10;
+
+          const tableOpts = {
+            theme: 'grid',
+            styles: { fontSize: 10 },
+            headStyles: { fillColor: [0, 123, 255] },
+            margin: { left: 10, right: 10 }
+          };
+
+          if (utenti.length) {
+            doc.text('ALLIEVI', 10, y);
+            y += 6;
+            doc.autoTable({
+              ...tableOpts,
+              startY: y,
+              head: [['#', 'Nome', 'Corso', 'Categoria']],
+              body: utenti.map((p, i) => [
+                i + 1,
+                formatTitolo(p.nome),
+                formatTitolo(p.corso),
+                formatTitolo(p.categoria)
+              ])
+            });
+            y = doc.lastAutoTable.finalY + 10;
+          }
+
+          if (staff.length) {
+            doc.text('STAFF', 10, y);
+            y += 6;
+            doc.autoTable({
+              ...tableOpts,
+              startY: y,
+              head: [['#', 'Nome', 'Corso', 'Categoria']],
+              body: staff.map((p, i) => [
+                i + 1,
+                formatTitolo(p.nome),
+                formatTitolo(p.corso),
+                formatTitolo(p.categoria)
+              ])
+            });
+          }
 
           doc.save(nomeFile);
         }
-
-        const dataLabel = new Date(giorno).toLocaleDateString('it-IT');
-        const nomeFile = `${mezzo.nome.replace(/\s+/g, '_')}_${dataLabel.replace(/\//g, '-')}_${orario.replace(':', '')}.pdf`;
-
-        const utenti = [];
-        const staff = [];
-        const corsiSet = new Set();
-
-        partecipanti.forEach(nome => {
-          const p = partecipantiTotali.find(x => x.nome === nome);
-          if (!p) return;
-          const cat = (p.categoria || '').toLowerCase();
-          const isStaff = ['istruttore', 'aiutoistruttore', 'divemaster'].includes(cat);
-          const obj = {
-            nome: p.nome,
-            corso: p.corso || 'Nessun corso',
-            categoria: p.categoria || 'N/A'
-          };
-          corsiSet.add(p.corso || 'Nessun corso');
-          isStaff ? staff.push(obj) : utenti.push(obj);
-        });
-
-        const corsi = Array.from(corsiSet).filter(Boolean).join(" e ") || 'Nessun corso';
-        const titolo = `${mezzo.nome} (${mezzo.tipo}) — ${corsi}`;
-
-        // Ordinamento allievi: corso, nome
-        utenti.sort((a, b) => {
-          const corsoA = a.corso.toLowerCase();
-          const corsoB = b.corso.toLowerCase();
-          if (corsoA < corsoB) return -1;
-          if (corsoA > corsoB) return 1;
-          return a.nome.localeCompare(b.nome);
-        });
-
-        // Priorità staff
-        function categoriaPriorita(cat) {
-          switch (cat.toLowerCase()) {
-            case 'istruttore': return 0;
-            case 'aiutoistruttore': return 1;
-            case 'divemaster': return 2;
-            default: return 3;
-          }
-        }
-
-        // Ordinamento staff: corso, priorità categoria, nome
-        staff.sort((a, b) => {
-          const corsoA = a.corso.toLowerCase();
-          const corsoB = b.corso.toLowerCase();
-          if (corsoA < corsoB) return -1;
-          if (corsoA > corsoB) return 1;
-          const prioritaA = categoriaPriorita(a.categoria);
-          const prioritaB = categoriaPriorita(b.categoria);
-          if (prioritaA !== prioritaB) return prioritaA - prioritaB;
-          return a.nome.localeCompare(b.nome);
-        });
-
-        let y = logoY + logoSize + 15;
-        doc.setFontSize(14);
-        doc.text(titolo, 10, y);
-        y += 8;
-
-        doc.setFontSize(11);
-        doc.text(`GITA: ${nomeGita}`, 10, y); y += 6;
-        if (puntoImmersione) {
-          doc.text(`PUNTO IMMERSIONE: ${puntoImmersione}`, 10, y); y += 6;
-        }
-        doc.text(`DATA: ${dataLabel}`, 10, y); y += 6;
-        doc.text(`ORARIO: ${orario}`, 10, y); y += 6;
-        doc.text(`POSTI BARCA: ${mezzo.capienza || '∞'}`, 10, y);
-        doc.text(`SUBACQUEI A BORDO: ${partecipanti.length}`, 100, y);
-        y += 10;
-
-        const tableOpts = {
-          theme: 'grid',
-          styles: { fontSize: 10 },
-          headStyles: { fillColor: [0, 123, 255] },
-          margin: { left: 10, right: 10 }
-        };
-
-        if (utenti.length) {
-          doc.text('ALLIEVI', 10, y);
-          y += 6;
-          doc.autoTable({
-            ...tableOpts,
-            startY: y,
-            head: [['#', 'Nome', 'Corso', 'Categoria']],
-            body: utenti.map((p, i) => [
-              i + 1,
-              formatTitolo(p.nome),
-              formatTitolo(p.corso),
-              formatTitolo(p.categoria)
-            ])
-          });
-          y = doc.lastAutoTable.finalY + 10;
-        }
-
-        if (staff.length) {
-          doc.text('STAFF', 10, y);
-          y += 6;
-          doc.autoTable({
-            ...tableOpts,
-            startY: y,
-            head: [['#', 'Nome', 'Corso', 'Categoria']],
-            body: staff.map((p, i) => [i + 1, p.nome, p.corso, p.categoria])
-          });
-        }
-
-        doc.save(nomeFile);
       }
 
       async function salvaPartecipantiMezzo(mezzoNome, nomeSelezionato) {
@@ -1754,17 +1848,53 @@ function confermaImportIscritti(){
     .catch(()=>showMsg('Errore importazione iscritti'));
 }
 
-auth.onAuthStateChanged(user => {
-        if (user) {
-          document.getElementById('authSection').classList.add('hidden');
-          document.getElementById('mainApp').classList.remove('hidden');
-          flatpickr('#dateGita', { mode: 'range', dateFormat: 'Y-m-d' });
-          loadGite();
-        } else {
-          document.getElementById('authSection').classList.remove('hidden');
-          document.getElementById('mainApp').classList.add('hidden');
-        }
-      });
+function mostraApp() {
+  if (currentUser && adminEmails.includes(currentUser.email)) {
+    document.getElementById("apriImpostazioni").style.display = "inline-block";
+  } else {
+    document.getElementById("apriImpostazioni").style.display = "none";
+  }
+
+  document.getElementById("authSection").classList.add("hidden");
+  document.getElementById("mainApp").classList.remove("hidden");
+  flatpickr('#dateGita', { mode: 'range', dateFormat: 'Y-m-d' });
+  loadGite();
+}
+
+
+auth.onAuthStateChanged(async (user) => {
+  if (user) {
+    currentUser = user;
+    const email = user.email;
+
+    if (adminEmails.includes(email)) {
+      mostraApp(); // accesso immediato per admin
+      return;
+    }
+
+    try {
+      const doc = await db.collection("utenti").doc(email).get();
+      const dati = doc.data();
+
+      if (dati && dati.approvato === true) {
+        mostraApp(); // accesso per utenti approvati
+      } else {
+        document.getElementById("authMessage").innerHTML = "Accesso in attesa di approvazione.";
+        auth.signOut();
+      }
+    } catch (err) {
+      console.error("Errore durante il controllo approvazione:", err);
+      document.getElementById("authMessage").innerHTML = "Errore durante l'accesso. Riprova.";
+      auth.signOut();
+    }
+  } else {
+    // utente non loggato
+    currentUser = null;
+    document.getElementById("authSection").classList.remove("hidden");
+    document.getElementById("mainApp").classList.add("hidden");
+  }
+});
+
     }
       
 
