@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Upload Foto</title>
+</head>
+<body>
+  <h2>Scatta o seleziona una foto</h2>
+  <input type="file" accept="image/*" capture="environment" id="fotoInput">
+  <br><br>
+  <img id="anteprima" src="" style="max-width: 300px; display:none;">
+  <script>
+    const input = document.getElementById('fotoInput');
+    const anteprima = document.getElementById('anteprima');
+
+    input.onchange = () => {
+      const file = input.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          anteprima.src = reader.result;
+          anteprima.style.display = "block";
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+  </script>
+</body>
+</html>
